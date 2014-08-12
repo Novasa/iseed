@@ -1,0 +1,47 @@
+<?php
+
+class {{class}} extends Seeder {
+
+	/**
+	 * Auto generated seed file
+	 *
+	 * @return void
+	 */
+	public function run()
+	{
+		$stdout = null;
+		exec("which gunzip", $stdout);
+		$gunzipPath = $stdout[0];
+		
+		$stdout = null;
+		exec("which mysql", $stdout);
+		$mysqlPath = $stdout[0];
+		
+		if ($gunzipPath && $mysqlPath)
+		{
+			\DB::table('{{table}}')->truncate();
+		
+			$seedPath = app_path() . \Config::get('iseed::path');
+			
+			$default_db = \Config::get('database.default');
+			$connections = \Config::get('database.connections');
+			$dbconf = $connections[$default_db];
+	        
+	        $cmd = "{$gunzipPath} < '{$seedPath}/dumps/{{sql_file}}' | {$mysqlPath} --user={$dbconf['username']} --password={$dbconf['password']} --host={$dbconf['host']} {$dbconf['database']}";
+	        
+	        $stdout = null;
+	        exec($cmd, $stdout, $retval);
+			
+			if ($retval != 0) {
+				echo "mysql command failed!\ncmd: " . $cmd . "\n";
+			}
+			
+			if (!empty($stdout)){
+			    foreach ($stdout as $line){
+			        echo $line . "\n";
+			    }
+			}
+		}
+	}
+
+}

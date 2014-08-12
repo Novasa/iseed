@@ -20,29 +20,89 @@ class Iseed {
 		// Check if table exists
 		if (!$this->hasTable($table)) throw new TableNotFoundException("Table $table was not found.");
 
-		// Get the data
-		$data = $this->getData($table);
-
-		// Repack the data
-		$dataArray = $this->repackSeedData($data);
-
+		// Get the row count
+		$rowCount = $this->getRowCount($table);
+		
+		// Get the column count
+		$columnCount = $this->getColumnCount($table);
+		
 		// Generate class name
 		$className = $this->generateClassName($table);
-
-		// Get template for a seed file contents
-		$stub = $this->files->get($this->getStubPath() . '/seed.stub');
 
 		// Get a seed folder path
 		$seedPath = $this->getSeedPath();
 
 		// Get a app/database/seeds path
 		$seedsPath = $this->getPath($className, $seedPath);
+		
+		$seedContent = null;
 
-		// Get a populated stub file
-		$seedContent = $this->populateStub($className, $stub, $table, $dataArray);
-
-		// Save a populated stub
-		$this->files->put($seedsPath, $seedContent);
+		if ($rowCount * $columnCount > 2000)
+		{
+			$stdout = null;
+			exec("which mysqldump", $stdout);
+			$mysqlDumpPath = $stdout[0];
+				
+			$sqlPath = str_replace(".php", ".sql.gz", $seedsPath);
+			$sqlPath = str_replace(basename($sqlPath), "dumps/" . basename($sqlPath), $sqlPath);
+			
+			if (!file_exists(dirname($sqlPath)))
+				mkdir(dirname($sqlPath));
+			
+			$default_db = \Config::get('database.default');
+			$connections = \Config::get('database.connections');
+			$dbconf = $connections[$default_db];
+		
+			$cmd = "{$mysqlDumpPath} --no-create-db --no-create-info --user={$dbconf['username']} --password={$dbconf['password']} --host={$dbconf['host']} {$dbconf['database']} {$table} | gzip > '{$sqlPath}'";
+			
+			$stdout = null;
+			exec($cmd, $stdout, $retval);
+			
+			$errors = false;
+			
+			if ($retval != 0) {
+				echo "mysqldump command failed!\ncmd: " . $cmd . "\n";
+				$errors = true;
+			}
+			
+			if (!empty($stdout)){
+			    foreach ($stdout as $line){
+			        echo $line . "\n";
+			    }
+			    
+			    $errors = true;
+			}
+			
+			if ($errors)
+				return false;
+				
+			// Get template for a seed file contents
+			$stub = $this->files->get($this->getStubPath() . '/seed_mysqldump.stub');
+			
+			// Get a populated stub file
+			$seedContent = $this->populateStubMysqlDump($className, $stub, $table, basename($sqlPath));
+		}else{
+			// Get the data
+			$data = $this->getData($table);
+	
+			// Repack the data
+			$dataArray = $this->repackSeedData($data);
+			
+			// Get template for a seed file contents
+			$stub = $this->files->get($this->getStubPath() . '/seed.stub');
+	
+			// Get a populated stub file
+			$seedContent = $this->populateStub($className, $stub, $table, $dataArray);
+		}
+		
+		if ($seedContent != "")
+		{
+			// Save a populated stub
+			$this->files->put($seedsPath, $seedContent);
+		}else{
+			return false;
+		}
+		
 
 		// Update the DatabaseSeeder.php file
 		return $this->updateDatabaseSeederRunMethod($className) !== false;
@@ -69,6 +129,29 @@ class Iseed {
 	{
 		return \DB::table($table)->get();
 	}
+	
+	/**
+	 * Get the Data Row Count
+	 * @param  string $table
+	 * @return int
+	 */
+	public function getRowCount($table)
+	{
+		return \DB::table($table)->count();
+	}
+	
+	/**
+	 * Get the Data Column Count
+	 * @param  string $table
+	 * @return int
+	 */
+	public function getColumnCount($table)
+	{
+		$pdo = \DB::connection()->getPdo();
+		$sth = $pdo->prepare("SELECT * FROM {$table} LIMIT 0");
+		$sth->execute();
+		return $sth->columnCount();
+	}	
 
 	/**
 	 * Repacks data read from the database
@@ -145,9 +228,30 @@ class Iseed {
 		if (!is_null($table)) {
 			$stub = str_replace('{{table}}', $table, $stub);
 		}
-
+		
 		$stub = str_replace('{{insert_statements}}', $inserts, $stub);
+		
+		return $stub;
+	}
+	
+	/**
+	 * Populate the place-holders in the seed stub.
+	 * @param  string  $class
+	 * @param  string  $stub
+	 * @param  string  $table
+	 * @param  string  $data
+	 * @return string
+	 */
+	public function populateStubMysqlDump($class, $stub, $table, $sqlFile)
+	{       
+		$stub = str_replace('{{class}}', $class, $stub);
 
+		if (!is_null($table)) {
+			$stub = str_replace('{{table}}', $table, $stub);
+		}
+		
+		$stub = str_replace('{{sql_file}}', $sqlFile, $stub);
+		
 		return $stub;
 	}
     
