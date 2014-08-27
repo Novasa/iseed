@@ -21,7 +21,7 @@ class {{class}} extends Seeder {
 		{
 			\DB::table('{{table}}')->truncate();
 		
-			$seedPath = app_path() . \Config::get('iseed::path');
+			$seedPath = app_path() . '/database/seeds';
 			
 			$default_db = \Config::get('database.default');
 			$connections = \Config::get('database.connections');
